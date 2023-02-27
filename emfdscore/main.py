@@ -1,70 +1,88 @@
-import warnings
-warnings.simplefilter(action='ignore', category=FutureWarning)
 import pandas as pd
-import argparse
-from emfdscore.scoring import score_docs, pat_docs
+import multiprocessing as mp
+import os
+import utils
 
-parser = argparse.ArgumentParser(description='Extract moral informtion from textual documents with emfdscore.')
+from emfdscore.scoring import score_docs 
 
-parser.add_argument('input_csv', metavar='infile', nargs='+',
-                    help='Path to the CSV containing the input text. Each row in the CSV must correspond to one document text')
+lock = mp.Lock()
+dirname = os.path.dirname(__file__)
 
-parser.add_argument('dict_type', metavar='dict_version', nargs='+', type=str, default='emfd',
-                    help='Dictionary for scoring. Possible values are: emfd, mfd, mfd2')
-                    
-parser.add_argument('prob_map', metavar='prob_map', nargs='+', type=str, default='all',
-                    help='eMFD only. Assigns either five moral probabilities (all) or only the highest probability (single) to each word. Possible values are: all, single')
+# multiprocessing parameters
+NUMBER_OF_PROCESSES = 4
+CHUNK_SIZE = 100000
 
-parser.add_argument('score_method', metavar='scoring_method', nargs='+', type=str, default='bow',
-                    help='Text scoring method. Possible values are: bow, wordlist, gdelt.ngrams, pat')
-                    
-parser.add_argument('output_metrics', metavar='output_metrics', nargs='+', type=str, default='sentiment',
-                    help='eMFD only. Either returns an average sentiment score for each foundation (sentiment) or splits each foundation into a vice/virtue category (vice-virtue).
-                    Possible values are: sentiment, vice-virtue')
+# scoring parameters
+DICT_TYPE = 'emfd'
+PROB_MAP = 'all'
+SCORE_METHOD = 'bow'
+OUT_METRICS = 'sentiment'
 
-parser.add_argument('output_csv', metavar='outfile', nargs='+', type=str,
-                    help='The path/name for the scored output CSV.')
+# paths and file names 
+OUT_CSV_PATH = "data_collection\\data\scores\\{}-trial.csv" # rembember to add the \{}.csv at the end
+IN_CSV_PATH = "data_collection\\data\\test\\{}.csv"
+FILE_NAMES = ["UKLabour-tweets_", "Conservatives-tweets_"] # names of file inside IN_CSV_PATH folder
 
-args = vars(parser.parse_args())
-IN_CSV_PATH = args['input_csv'][0]
-DICT_TYPE = args['dict_type'][0]
-PROB_MAP = args['prob_map'][0]
-SCORE_METHOD = args['score_method'][0]
-OUT_METRICS = args['output_metrics'][0]
-OUT_CSV_PATH = args['output_csv'][0]
+# headers to write to the file first
+HEADERS = ["care_p", "fairness_p", "loyalty_p", "authority_p", 
+    "sanctity_p", "care_sent", "fairness_sent", "loyalty_sent", 
+    "authority_sent", "sanctity_sent", "moral_nonmoral_ratio", "f_var", 
+    "sent_var", "user_id"]
 
-infile_type = IN_CSV_PATH.split('.')[-1]
+def calculate_score(df_chunk, output_path, lock):
+    num_docs = len(df_chunk)
 
-if infile_type == 'csv':
-    csv = pd.read_csv(IN_CSV_PATH, header=None)
-    num_docs = len(csv)
+    tweets_text = df_chunk["tweet_text"].to_list()
+    user_id = df_chunk["user_id"].to_list()
 
-elif infile_type == 'txt':
-    ngrams =  open(IN_CSV_PATH).readlines()
-    df = pd.DataFrame()
-    df['word'] = [x.split('\t')[3] for x in ngrams]
-    df['freq'] = [ int(x.split('\t')[4].strip()) for x in ngrams]
-    num_docs = len(df)
-else:
-    print('Input file type not recognized! Must either be CSV for scoring method bow, wordlist, and pat, or TXT for gdelt.ngram')
+    tweets_text_df = pd.DataFrame(tweets_text)
+    print(tweets_text_df)
 
-print("Running eMFDscore")
-print("Total number of input texts to be scored:", num_docs)
+    df = score_docs(tweets_text_df, DICT_TYPE, PROB_MAP, SCORE_METHOD, OUT_METRICS, num_docs)
 
-if SCORE_METHOD == 'bow':
-    df = score_docs(csv,DICT_TYPE,PROB_MAP,SCORE_METHOD,OUT_METRICS,num_docs)
-    df.to_csv(OUT_CSV_PATH, index=False)
+    with lock:
+        df["user_id"] = user_id
+        df.to_csv(path_or_buf=output_path, mode="a", index=False, header=None)
 
-if SCORE_METHOD == 'wordlist':
-    df = score_docs(csv,DICT_TYPE,SCORE_METHOD,num_docs)
-    df.to_csv(OUT_CSV_PATH, index=False)
+if __name__ == "__main__":
+    df_chunks = {}
 
-if SCORE_METHOD == 'gdelt.ngrams':
-    df = score_docs(df,DICT_TYPE,SCORE_METHOD,num_docs)
-    df.to_csv(OUT_CSV_PATH, index=False)
+    # read every file
+    for name in FILE_NAMES:
+        print(f"Reading {name}")
 
-if SCORE_METHOD == 'pat':
-    df = pat_docs(csv,num_docs)
-    df.to_csv(OUT_CSV_PATH, index=False)
+        # set paths
+        input_path = IN_CSV_PATH.format(name)
+        output_path = OUT_CSV_PATH.format(name)
+     
+        # read csv
+        df = pd.read_csv(input_path, on_bad_lines='skip', encoding='utf-8')
+        df = df.astype("string")
 
-print('Scoring completed.')
+        # split data
+        df_chunks[name] = [df[i:i+CHUNK_SIZE].reset_index() for i in range(0, len(df), CHUNK_SIZE)]
+
+        # create NUMBER_OF_PROCESSES subchunks
+        chunks = df_chunks[name]
+        subchunks = [chunks[i:i+NUMBER_OF_PROCESSES] for i in range(0, len(chunks), NUMBER_OF_PROCESSES)]
+
+        # write file header
+        output_file = open(output_path, "a", encoding="utf-8")
+        utils.write_file(output_file, *HEADERS)
+        output_file.close()
+
+        # run processes
+        for chunks in subchunks:
+            processes = [mp.Process(target=calculate_score, args=(chunk, output_path, lock)) for chunk in chunks]
+
+            for p in processes:
+                p.start()
+
+            for p in processes:
+                p.join()
+
+    
+
+
+
+
