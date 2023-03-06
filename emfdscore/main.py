@@ -19,9 +19,9 @@ SCORE_METHOD = 'bow'
 OUT_METRICS = 'sentiment'
 
 # paths and file names 
-OUT_CSV_PATH = "data_collection\\data\scores\\{}-trial.csv" # rembember to add the \{}.csv at the end
-IN_CSV_PATH = "data_collection\\data\\test\\{}.csv"
-FILE_NAMES = ["UKLabour-tweets_", "Conservatives-tweets_"] # names of file inside IN_CSV_PATH folder
+OUT_CSV_PATH = "data_collection\\data\scores\\{}.csv" # rembember to add the \{}.csv at the end
+IN_CSV_PATH = "data_collection\\data\\tweets\\{}.csv"
+FILE_NAMES = ["UKLabour-regular", "Conservatives-regular"] # names of file inside IN_CSV_PATH folder
 
 # headers to write to the file first
 HEADERS = ["care_p", "fairness_p", "loyalty_p", "authority_p", 
@@ -29,7 +29,7 @@ HEADERS = ["care_p", "fairness_p", "loyalty_p", "authority_p",
     "authority_sent", "sanctity_sent", "moral_nonmoral_ratio", "f_var", 
     "sent_var", "user_id"]
 
-def calculate_score(df_chunk, output_path, lock):
+def calculate_score(df_chunk, output_path):
     num_docs = len(df_chunk)
 
     tweets_text = df_chunk["tweet_text"].to_list()
@@ -41,7 +41,7 @@ def calculate_score(df_chunk, output_path, lock):
     df = score_docs(tweets_text_df, DICT_TYPE, PROB_MAP, SCORE_METHOD, OUT_METRICS, num_docs)
 
     with lock:
-        df["user_id"] = user_id
+        df.insert(loc=0, column='user_id', value=user_id)
         df.to_csv(path_or_buf=output_path, mode="a", index=False, header=None)
 
 if __name__ == "__main__":
@@ -73,7 +73,7 @@ if __name__ == "__main__":
 
         # run processes
         for chunks in subchunks:
-            processes = [mp.Process(target=calculate_score, args=(chunk, output_path, lock)) for chunk in chunks]
+            processes = [mp.Process(target=calculate_score, args=(chunk, output_path)) for chunk in chunks]
 
             for p in processes:
                 p.start()
