@@ -1,0 +1,9 @@
+Metadata-Version: 2.1
+Name: emfdscore
+Version: 0.0.1
+Summary: Extended Moral Foundation Dictionary Scoring for Python
+Home-page: https://github.com/medianeuroscience/emfdscore
+Author: Anonymized.
+Author-email: fhopp@ucsb.edu
+License: MIT
+License-File: LICENSE
