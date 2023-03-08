@@ -6,11 +6,11 @@ import utils
 from emfdscore.scoring import score_docs 
 
 lock = mp.Lock()
-dirname = os.path.dirname(__file__)
+working_dir = os.getcwd()
 
 # multiprocessing parameters
 NUMBER_OF_PROCESSES = 4
-CHUNK_SIZE = 100000
+CHUNK_SIZE = 10000
 
 # scoring parameters
 DICT_TYPE = 'emfd'
@@ -19,15 +19,15 @@ SCORE_METHOD = 'bow'
 OUT_METRICS = 'sentiment'
 
 # paths and file names 
-OUT_CSV_PATH = "data_collection\\data\scores\\{}.csv" # rembember to add the \{}.csv at the end
-IN_CSV_PATH = "data_collection\\data\\tweets\\{}.csv"
+OUT_CSV_PATH = "data-collection\\data\scores\\{}.csv" # rembember to add the \{}.csv at the end
+IN_CSV_PATH = "data-collection\\data\\tweets\\{}.csv"
 FILE_NAMES = ["UKLabour-regular", "Conservatives-regular"] # names of file inside IN_CSV_PATH folder
 
 # headers to write to the file first
-HEADERS = ["care_p", "fairness_p", "loyalty_p", "authority_p", 
+HEADERS = ["user_id", "care_p", "fairness_p", "loyalty_p", "authority_p", 
     "sanctity_p", "care_sent", "fairness_sent", "loyalty_sent", 
     "authority_sent", "sanctity_sent", "moral_nonmoral_ratio", "f_var", 
-    "sent_var", "user_id"]
+    "sent_var"]
 
 def calculate_score(df_chunk, output_path):
     num_docs = len(df_chunk)
@@ -41,7 +41,8 @@ def calculate_score(df_chunk, output_path):
     df = score_docs(tweets_text_df, DICT_TYPE, PROB_MAP, SCORE_METHOD, OUT_METRICS, num_docs)
 
     with lock:
-        df.insert(loc=0, column='user_id', value=user_id)
+        df.insert(loc=0, column='user_id', value=user_id, allow_duplicates=True)
+        df['user_id'] = df['user_id'].astype('object')  
         df.to_csv(path_or_buf=output_path, mode="a", index=False, header=None)
 
 if __name__ == "__main__":
@@ -52,8 +53,8 @@ if __name__ == "__main__":
         print(f"Reading {name}")
 
         # set paths
-        input_path = IN_CSV_PATH.format(name)
-        output_path = OUT_CSV_PATH.format(name)
+        input_path = os.path.join(working_dir, IN_CSV_PATH.format(name)) 
+        output_path = os.path.join(working_dir, OUT_CSV_PATH.format(name))  
      
         # read csv
         df = pd.read_csv(input_path, on_bad_lines='skip', encoding='utf-8')
